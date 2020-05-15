@@ -2,9 +2,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,9 +14,8 @@
 
 package org.apache.flink.streaming.connectors.pulsar.internal;
 
-import org.apache.flink.api.common.serialization.DeserializationSchema;
-
 import lombok.extern.slf4j.Slf4j;
+import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Reader;
@@ -105,6 +104,8 @@ public class ReaderThread<T> extends Thread {
                     emitRecord(message);
                 }
             }
+        } catch (IOException ex) {
+            log.error("exp={}", ex);
         } catch (Throwable e) {
             exceptionProxy.reportError(e);
         } finally {
@@ -143,18 +144,21 @@ public class ReaderThread<T> extends Thread {
                 && !startMessageId.equals(MessageId.latest)
                 && ((MessageIdImpl) startMessageId).getEntryId() != -1) {
             MessageIdImpl lastMessageId = (MessageIdImpl) this.owner.getMetadataReader().getLastMessageId(reader.getTopic());
+
             if (!messageIdRoughEquals(startMessageId, lastMessageId) && !reader.hasMessageAvailable()) {
                 MessageIdImpl startMsgIdImpl = (MessageIdImpl) startMessageId;
                 long startMsgLedgerId = startMsgIdImpl.getLedgerId();
                 long startMsgEntryId = startMsgIdImpl.getEntryId();
                 if (startMsgLedgerId > lastMessageId.getLedgerId()
                         || (startMsgLedgerId == lastMessageId.getLedgerId() && startMsgEntryId > lastMessageId.getEntryId())) {
-                    log.error("the start message id is beyond the last commit message id, with topic:{}", reader.getTopic());
+                    log.error("the start message id {}:{} is beyond the last commit message id {}:{}, with topic:{}",
+                            startMsgLedgerId, startMsgEntryId, lastMessageId.getLedgerId(), lastMessageId.getEntryId(), reader.getTopic());
                     throw new RuntimeException("start message id beyond the last commit");
                 } else if (!failOnDataLoss) {
                     log.info("reset message to valid offset");
                     this.owner.getMetadataReader().resetCursor(reader.getTopic(), startMessageId);
                 }
+
             } else {
                 failOnDataLoss = false;
             }
@@ -165,28 +169,29 @@ public class ReaderThread<T> extends Thread {
                 }
             }
             if (currentMessage == null) {
-                reportDataLoss(String.format("Cannot read data at offset %s from topic: %s",
+                reportDataLoss(String.format("Cannot read data at offset %s from topic: %s \n",
                         startMessageId.toString(),
                         topic));
             } else {
                 currentId = currentMessage.getMessageId();
-                if (!messageIdRoughEquals(currentId, startMessageId)) {
-                    reportDataLoss(
-                            String.format(
-                                    "Potential Data Loss in reading %s: intended to start at %s, actually we get %s",
-                                    topic, startMessageId.toString(), currentId.toString()));
-                }
+//                if (!messageIdRoughEquals(currentId, startMessageId)) {
+//                    reportDataLoss(
+//                            String.format(
+//                                    "Potential Data Loss in reading %s: intended to start at %s, actually we get %s \n",
+//                                    topic, startMessageId.toString(), currentId.toString()));
+//                }
 
                 if (startMessageId instanceof BatchMessageIdImpl && currentId instanceof BatchMessageIdImpl) {
                     // we seek using a batch message id, we can read next directly later
                 } else if (startMessageId instanceof MessageIdImpl && currentId instanceof BatchMessageIdImpl) {
                     // we seek using a message id, this is supposed to be read by previous task since it's
                     // inclusive for the checkpoint, so we skip this batch
-                    BatchMessageIdImpl cbmid = (BatchMessageIdImpl) currentId;
-
-                    MessageIdImpl newStart =
-                            new MessageIdImpl(cbmid.getLedgerId(), cbmid.getEntryId() + 1, cbmid.getPartitionIndex());
-                    reader.seek(newStart);
+//                    log.info("seeknewstart");
+//                    BatchMessageIdImpl cbmid = (BatchMessageIdImpl) currentId;
+//
+//                    MessageIdImpl newStart =
+//                            new MessageIdImpl(cbmid.getLedgerId(), cbmid.getEntryId() + 1, cbmid.getPartitionIndex());
+//                    reader.seek(newStart);
                 } else if (startMessageId instanceof MessageIdImpl && currentId instanceof MessageIdImpl) {
                     // current entry is a non-batch entry, we can read next directly later
                 }

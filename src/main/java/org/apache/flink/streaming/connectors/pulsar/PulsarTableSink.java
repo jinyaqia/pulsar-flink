@@ -14,6 +14,7 @@
 
 package org.apache.flink.streaming.connectors.pulsar;
 
+import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
@@ -48,17 +49,29 @@ public class PulsarTableSink implements AppendStreamTableSink<Row> {
     private final ClientConfigurationData clientConf;
 
     private final Properties properties;
+    private final SerializationSchema<Row> serializationSchema;
 
-    public PulsarTableSink(String adminUrl, TableSchema schema, Optional<String> defaultTopicName, ClientConfigurationData clientConf, Properties properties) {
+    public PulsarTableSink(String adminUrl,
+                           TableSchema schema,
+                           Optional<String> defaultTopicName,
+                           ClientConfigurationData clientConf,
+                           Properties properties,
+                           SerializationSchema<Row> serializationSchema) {
         this.adminUrl = checkNotNull(adminUrl);
         this.schema = checkNotNull(schema);
         this.defaultTopicName = defaultTopicName;
         this.clientConf = checkNotNull(clientConf);
         this.properties = checkNotNull(properties);
+        this.serializationSchema = checkNotNull(serializationSchema);
     }
 
-    public PulsarTableSink(String serviceUrl, String adminUrl, TableSchema schema, Optional<String> defaultTopicName, Properties properties) {
-        this(adminUrl, schema, defaultTopicName, new ClientConfigurationData(), properties);
+    public PulsarTableSink(String serviceUrl,
+                           String adminUrl,
+                           TableSchema schema,
+                           Optional<String> defaultTopicName,
+                           Properties properties,
+                           SerializationSchema<Row> serializationSchema) {
+        this(adminUrl, schema, defaultTopicName, new ClientConfigurationData(), properties,serializationSchema);
         this.clientConf.setServiceUrl(checkNotNull(serviceUrl));
     }
 
@@ -69,7 +82,7 @@ public class PulsarTableSink implements AppendStreamTableSink<Row> {
 
     @Override
     public DataStreamSink<?> consumeDataStream(DataStream<Row> dataStream) {
-        FlinkPulsarRowSink sink = new FlinkPulsarRowSink(adminUrl, defaultTopicName, clientConf, properties, schema.toRowDataType());
+        FlinkPulsarRowSink sink = new FlinkPulsarRowSink(adminUrl, defaultTopicName, clientConf, properties, schema.toRowDataType(),serializationSchema);
         return dataStream
                 .addSink(sink)
                 .setParallelism(dataStream.getParallelism())

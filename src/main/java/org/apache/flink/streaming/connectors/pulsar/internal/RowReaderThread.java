@@ -14,6 +14,7 @@
 
 package org.apache.flink.streaming.connectors.pulsar.internal;
 
+import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.types.Row;
 
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +37,7 @@ public class RowReaderThread extends ReaderThread<Row> {
 
     private final Schema<?> schema;
 
-    private final PulsarDeserializer deserializer;
+    private final DeserializationSchema<Row> deserializer;
 
     public RowReaderThread(
             PulsarFetcher owner,
@@ -45,12 +46,12 @@ public class RowReaderThread extends ReaderThread<Row> {
             Map<String, Object> readerConf,
             int pollTimeoutMs,
             SchemaInfo pulsarSchema,
-            JSONOptionsInRead jsonOptions,
+            DeserializationSchema<Row> deserializer,
             ExceptionProxy exceptionProxy) {
 
-        super(owner, state, clientConf, readerConf, null, pollTimeoutMs, exceptionProxy);
+        super(owner, state, clientConf, readerConf, deserializer, pollTimeoutMs, exceptionProxy);
         this.schema = SchemaUtils.getPulsarSchema(pulsarSchema);
-        this.deserializer = new PulsarDeserializer(pulsarSchema, jsonOptions);
+        this.deserializer = deserializer;
     }
 
     @Override
@@ -65,10 +66,10 @@ public class RowReaderThread extends ReaderThread<Row> {
                 .create();
     }
 
-    @Override
-    protected void emitRecord(Message<?> message) throws IOException {
-        MessageId messageId = message.getMessageId();
-        Row record = deserializer.deserialize(message);
-        owner.emitRecord(record, state, messageId);
-    }
+//    @Override
+//    protected void emitRecord(Message<?> message) throws IOException {
+//        MessageId messageId = message.getMessageId();
+//        Row record = deserializer.deserialize(message.getData());
+//        owner.emitRecord(record, state, messageId);
+//    }
 }

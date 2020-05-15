@@ -2,9 +2,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,10 @@
 
 package org.apache.flink.streaming.connectors.pulsar;
 
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.api.common.serialization.DeserializationSchema;
+import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.streaming.connectors.pulsar.config.StartupMode;
 import org.apache.flink.streaming.connectors.pulsar.internal.PulsarMetadataReader;
 import org.apache.flink.table.api.TableException;
@@ -23,8 +27,7 @@ import org.apache.flink.table.catalog.ObjectPath;
 import org.apache.flink.table.descriptors.DescriptorProperties;
 import org.apache.flink.table.descriptors.PulsarValidator;
 import org.apache.flink.table.descriptors.SchemaValidator;
-import org.apache.flink.table.factories.StreamTableSinkFactory;
-import org.apache.flink.table.factories.StreamTableSourceFactory;
+import org.apache.flink.table.factories.*;
 import org.apache.flink.table.sinks.StreamTableSink;
 import org.apache.flink.table.sinks.TableSink;
 import org.apache.flink.table.sources.RowtimeAttributeDescriptor;
@@ -32,50 +35,17 @@ import org.apache.flink.table.sources.StreamTableSource;
 import org.apache.flink.table.sources.TableSource;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.ExceptionUtils;
-
-import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Properties;
+import java.util.*;
 
-import static org.apache.flink.table.descriptors.ConnectorDescriptorValidator.CONNECTOR;
-import static org.apache.flink.table.descriptors.ConnectorDescriptorValidator.CONNECTOR_PROPERTY_VERSION;
-import static org.apache.flink.table.descriptors.ConnectorDescriptorValidator.CONNECTOR_TYPE;
+import static org.apache.flink.table.descriptors.ConnectorDescriptorValidator.*;
 import static org.apache.flink.table.descriptors.FormatDescriptorValidator.FORMAT;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_ADMIN_URL;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_EXTERNAL_SUB_NAME;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_PROPERTIES;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_PROPERTIES_KEY;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_PROPERTIES_VALUE;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_SERVICE_URL;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_SINK_EXTRACTOR;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_SINK_EXTRACTOR_CLASS;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_SPECIFIC_OFFSETS;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_SPECIFIC_OFFSETS_OFFSET;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_SPECIFIC_OFFSETS_PARTITION;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_STARTUP_MODE;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_TOPIC;
-import static org.apache.flink.table.descriptors.PulsarValidator.CONNECTOR_TYPE_VALUE_PULSAR;
-import static org.apache.flink.table.descriptors.Rowtime.ROWTIME_TIMESTAMPS_CLASS;
-import static org.apache.flink.table.descriptors.Rowtime.ROWTIME_TIMESTAMPS_FROM;
-import static org.apache.flink.table.descriptors.Rowtime.ROWTIME_TIMESTAMPS_SERIALIZED;
-import static org.apache.flink.table.descriptors.Rowtime.ROWTIME_TIMESTAMPS_TYPE;
-import static org.apache.flink.table.descriptors.Rowtime.ROWTIME_WATERMARKS_CLASS;
-import static org.apache.flink.table.descriptors.Rowtime.ROWTIME_WATERMARKS_DELAY;
-import static org.apache.flink.table.descriptors.Rowtime.ROWTIME_WATERMARKS_SERIALIZED;
-import static org.apache.flink.table.descriptors.Rowtime.ROWTIME_WATERMARKS_TYPE;
-import static org.apache.flink.table.descriptors.Schema.SCHEMA;
-import static org.apache.flink.table.descriptors.Schema.SCHEMA_FROM;
-import static org.apache.flink.table.descriptors.Schema.SCHEMA_NAME;
-import static org.apache.flink.table.descriptors.Schema.SCHEMA_PROCTIME;
-import static org.apache.flink.table.descriptors.Schema.SCHEMA_TYPE;
+import static org.apache.flink.table.descriptors.PulsarValidator.*;
+import static org.apache.flink.table.descriptors.Rowtime.*;
+import static org.apache.flink.table.descriptors.Schema.*;
 import static org.apache.flink.table.descriptors.StreamTableDescriptorValidator.UPDATE_MODE;
 import static org.apache.flink.table.descriptors.StreamTableDescriptorValidator.UPDATE_MODE_VALUE_APPEND;
 
@@ -108,6 +78,10 @@ public class PulsarTableSourceSinkFactory
         String serviceUrl = dp.getString(CONNECTOR_SERVICE_URL);
         String adminUrl = dp.getString(CONNECTOR_ADMIN_URL);
 
+        String token = dp.getString(CONNECTOR_TOKEN);
+        String authClass = dp.getString(CONNECTOR_AUTH_CLASS);
+
+        SerializationSchema<Row> serializationSchema = getSerializationSchema(properties);
         Optional<String> proctime = SchemaValidator.deriveProctimeAttribute(dp);
         List<RowtimeAttributeDescriptor> rowtimeAttributeDescriptors = SchemaValidator.deriveRowtimeAttributes(dp);
 
@@ -127,8 +101,7 @@ public class PulsarTableSourceSinkFactory
         sinkProp.put(CONNECTOR_TOPIC, topic);
 
         Properties result = removeConnectorPrefix(sinkProp);
-
-        return new PulsarTableSink(serviceUrl, adminUrl, schema, Optional.of(topic), result);
+        return new PulsarTableSink(adminUrl, schema, Optional.of(topic), clientConf(token, authClass, serviceUrl), result, serializationSchema);
     }
 
     @Override
@@ -142,20 +115,27 @@ public class PulsarTableSourceSinkFactory
         return createStreamTableSink(props);
     }
 
+    private SerializationSchema<Row> getSerializationSchema(Map<String, String> properties) {
+        @SuppressWarnings("unchecked") final SerializationSchemaFactory<Row> formatFactory = TableFactoryService.find(
+                SerializationSchemaFactory.class,
+                properties,
+                this.getClass().getClassLoader());
+        return formatFactory.createSerializationSchema(properties);
+    }
+
     @Override
     public StreamTableSource<Row> createStreamTableSource(Map<String, String> properties) {
         DescriptorProperties descriptorProperties = getValidatedProperties(properties);
         String topic = descriptorProperties.getString(CONNECTOR_TOPIC);
         String serviceUrl = descriptorProperties.getString(CONNECTOR_SERVICE_URL);
         String adminUrl = descriptorProperties.getString(CONNECTOR_ADMIN_URL);
-        StartupOptions startupOptions = getStartupOptions(descriptorProperties);
 
-        Optional<TableSchema> schema;
-        if (isInPulsarCatalog) {
-            schema = Optional.of(descriptorProperties.getTableSchema(SCHEMA));
-        } else {
-            schema = Optional.empty();
-        }
+        String token = descriptorProperties.getString(CONNECTOR_TOKEN);
+        String authClass = descriptorProperties.getString(CONNECTOR_AUTH_CLASS);
+
+        StartupOptions startupOptions = getStartupOptions(descriptorProperties);
+        DeserializationSchema<Row> deserializationSchema = getDeserializationSchema(properties);
+        TableSchema schema = descriptorProperties.getTableSchema(SCHEMA);
 
         Properties sourceProp;
         if (isInPulsarCatalog) {
@@ -172,12 +152,33 @@ public class PulsarTableSourceSinkFactory
                 schema,
                 SchemaValidator.deriveProctimeAttribute(descriptorProperties),
                 SchemaValidator.deriveRowtimeAttributes(descriptorProperties),
-                serviceUrl,
+                clientConf(token, authClass, serviceUrl),
                 adminUrl,
                 result,
                 startupOptions.startupMode,
                 startupOptions.specificOffsets,
-                startupOptions.externalSubscriptionName);
+                startupOptions.externalSubscriptionName,
+                deserializationSchema);
+    }
+
+    private ClientConfigurationData clientConf(String token, String authClass, String serviceUrl) {
+        ClientConfigurationData clientConfig = new ClientConfigurationData();
+        if (StringUtils.isNoneBlank(authClass, token)) {
+            clientConfig.setAuthPluginClassName(authClass);
+            clientConfig.setAuthParams("token:" + token);
+        }
+        clientConfig.setServiceUrl(serviceUrl);
+        return clientConfig;
+    }
+
+    private DeserializationSchema<Row> getDeserializationSchema(Map<String, String> properties) {
+        final DeserializationSchemaFactory<Row> formatFactory = TableFactoryService.find(
+                DeserializationSchemaFactory.class,
+                properties,
+                this.getClass().getClassLoader()
+        );
+
+        return formatFactory.createDeserializationSchema(properties);
     }
 
     @Override
@@ -227,6 +228,9 @@ public class PulsarTableSourceSinkFactory
         properties.add(CONNECTOR_SERVICE_URL);
         properties.add(CONNECTOR_ADMIN_URL);
 
+        properties.add(CONNECTOR_TOKEN);
+        properties.add(CONNECTOR_AUTH_CLASS);
+
         properties.add(CONNECTOR_STARTUP_MODE);
         properties.add(CONNECTOR_SPECIFIC_OFFSETS + ".#." + CONNECTOR_SPECIFIC_OFFSETS_PARTITION);
         properties.add(CONNECTOR_SPECIFIC_OFFSETS + ".#." + CONNECTOR_SPECIFIC_OFFSETS_OFFSET);
@@ -237,6 +241,8 @@ public class PulsarTableSourceSinkFactory
 
         properties.add(CONNECTOR_SINK_EXTRACTOR);
         properties.add(CONNECTOR_SINK_EXTRACTOR_CLASS);
+
+        properties.add(CONNECTOR_EXTERNAL_SUB_NAME);
 
         // schema
         properties.add(SCHEMA + ".#." + SCHEMA_TYPE);

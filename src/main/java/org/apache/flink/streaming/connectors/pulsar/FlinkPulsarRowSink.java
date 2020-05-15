@@ -2,9 +2,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,8 @@
 
 package org.apache.flink.streaming.connectors.pulsar;
 
+import lombok.extern.slf4j.Slf4j;
+import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.connectors.pulsar.internal.DateTimeUtils;
@@ -26,23 +28,14 @@ import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.ExceptionUtils;
-
-import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Properties;
+import java.util.*;
 import java.util.stream.Collectors;
 
-import static org.apache.flink.streaming.connectors.pulsar.internal.PulsarOptions.EVENT_TIME_NAME;
-import static org.apache.flink.streaming.connectors.pulsar.internal.PulsarOptions.KEY_ATTRIBUTE_NAME;
-import static org.apache.flink.streaming.connectors.pulsar.internal.PulsarOptions.META_FIELD_NAMES;
-import static org.apache.flink.streaming.connectors.pulsar.internal.PulsarOptions.TOPIC_ATTRIBUTE_NAME;
+import static org.apache.flink.streaming.connectors.pulsar.internal.PulsarOptions.*;
 
 /**
  * Write Flink Row to Pulsar.
@@ -58,20 +51,22 @@ public class FlinkPulsarRowSink extends FlinkPulsarSinkBase<Row> {
 
     private SerializableFunction<Row, Row> metaProjection;
 
-    private transient PulsarSerializer serializer;
+//    private transient PulsarSerializer serializer;
 
     public FlinkPulsarRowSink(
             String adminUrl,
             Optional<String> defaultTopicName,
             ClientConfigurationData clientConf,
             Properties properties,
-            DataType dataType) {
+            DataType dataType,
+            SerializationSchema<Row> schema) {
         super(
                 adminUrl,
                 defaultTopicName,
                 clientConf,
                 properties,
-                TopicKeyExtractor.DUMMY_FOR_ROW);
+                TopicKeyExtractor.DUMMY_FOR_ROW,
+                schema);
 
         this.dataType = dataType;
         createProjection();
@@ -82,14 +77,15 @@ public class FlinkPulsarRowSink extends FlinkPulsarSinkBase<Row> {
             String adminUrl,
             Optional<String> defaultTopicName,
             Properties properties,
-            DataType dataType) {
-        this(adminUrl, defaultTopicName, newClientConf(serviceUrl), properties, dataType);
+            DataType dataType,
+            SerializationSchema<Row> schema) {
+        this(adminUrl, defaultTopicName, newClientConf(serviceUrl), properties, dataType, schema);
     }
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        this.serializer = new PulsarSerializer(valueType, false);
+//        this.serializer = new PulsarSerializer(valueType, false);
     }
 
     private void createProjection() {
@@ -187,22 +183,17 @@ public class FlinkPulsarRowSink extends FlinkPulsarSinkBase<Row> {
 
     @Override
     protected Schema<?> getPulsarSchema() {
-        try {
-            return SchemaUtils.sqlType2PulsarSchema(valueType);
-        } catch (SchemaUtils.IncompatibleSchemaException e) {
-            log.error(ExceptionUtils.stringifyException(e));
-            throw new RuntimeException(e);
-        }
+        return Schema.BYTES;
     }
 
     @Override
     public void invoke(Row value, Context context) throws Exception {
         checkErroneous();
         initializeSendCallback();
-
+//
         Row metaRow = metaProjection.apply(value);
         Row valueRow = valueProjection.apply(value);
-        Object v = serializer.serialize(valueRow);
+        byte[] v = schema.serialize(valueRow);
 
         String topic;
         if (forcedTopic) {
@@ -221,19 +212,26 @@ public class FlinkPulsarRowSink extends FlinkPulsarSinkBase<Row> {
             return;
         }
 
-        TypedMessageBuilder builder = getProducer(topic).newMessage().value(v);
+        TypedMessageBuilder builder = getProducer(topic).newMessage(Schema.BYTES).value(v);
 
-        if (key != null) {
-            builder.keyBytes(key.getBytes());
-        }
+//        if (key != null) {
+//            builder.keyBytes(key.getBytes());
+//        }
 
-        if (eventTime != null) {
-            long et = DateTimeUtils.fromJavaTimestamp(eventTime);
-            if (et > 0) {
-                builder.eventTime(et);
+//        if (eventTime != null) {
+//            long et = DateTimeUtils.fromJavaTimestamp(eventTime);
+//            if (et > 0) {
+//                builder.eventTime(et);
+//            }
+//        }
+        if(context!=null) {
+            Long timestamp = context.timestamp();
+            if (timestamp == null) {
+                timestamp = context.currentProcessingTime();
             }
-        }
 
+            builder.eventTime(timestamp);
+        }
         if (flushOnCheckpoint) {
             synchronized (pendingRecordsLock) {
                 pendingRecords++;

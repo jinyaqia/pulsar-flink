@@ -2,9 +2,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,11 +14,14 @@
 
 package org.apache.flink.streaming.connectors.pulsar;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.java.ClosureCleaner;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.shaded.guava18.com.google.common.collect.Maps;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
@@ -28,10 +31,6 @@ import org.apache.flink.streaming.connectors.pulsar.internal.SchemaUtils;
 import org.apache.flink.streaming.connectors.pulsar.internal.SourceSinkUtils;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.SerializableObject;
-
-import org.apache.flink.shaded.guava18.com.google.common.collect.Maps;
-
-import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
@@ -97,12 +96,15 @@ abstract class FlinkPulsarSinkBase<T> extends RichSinkFunction<T> implements Che
 
     protected transient Map<String, Producer<?>> topic2Producer;
 
+    protected final SerializationSchema<T> schema;
+
     public FlinkPulsarSinkBase(
             String adminUrl,
             Optional<String> defaultTopicName,
             ClientConfigurationData clientConf,
             Properties properties,
-            TopicKeyExtractor<T> topicKeyExtractor) {
+            TopicKeyExtractor<T> topicKeyExtractor,
+            SerializationSchema<T> schema) {
 
         this.adminUrl = checkNotNull(adminUrl);
 
@@ -139,6 +141,7 @@ abstract class FlinkPulsarSinkBase<T> extends RichSinkFunction<T> implements Che
         if (this.clientConfigurationData.getServiceUrl() == null) {
             throw new IllegalArgumentException("ServiceUrl must be supplied in the client configuration");
         }
+        this.schema = schema;
     }
 
     public FlinkPulsarSinkBase(
@@ -146,8 +149,9 @@ abstract class FlinkPulsarSinkBase<T> extends RichSinkFunction<T> implements Che
             String adminUrl,
             Optional<String> defaultTopicName,
             Properties properties,
-            TopicKeyExtractor<T> topicKeyExtractor) {
-        this(adminUrl, defaultTopicName, newClientConf(checkNotNull(serviceUrl)), properties, topicKeyExtractor);
+            TopicKeyExtractor<T> topicKeyExtractor,
+            SerializationSchema<T> schema) {
+        this(adminUrl, defaultTopicName, newClientConf(checkNotNull(serviceUrl)), properties, topicKeyExtractor, schema);
     }
 
     protected static ClientConfigurationData newClientConf(String serviceUrl) {
@@ -187,7 +191,7 @@ abstract class FlinkPulsarSinkBase<T> extends RichSinkFunction<T> implements Che
         admin = PulsarAdminUtils.newAdminFromConf(adminUrl, clientConfigurationData);
 
         if (forcedTopic) {
-            uploadSchema(defaultTopic);
+//            uploadSchema(defaultTopic);
             singleProducer = createProducer(clientConfigurationData, producerConf, defaultTopic, getPulsarSchema());
         } else {
             topic2Producer = new HashMap<>();

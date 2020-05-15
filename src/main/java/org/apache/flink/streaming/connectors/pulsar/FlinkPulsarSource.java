@@ -52,6 +52,7 @@ import org.apache.commons.collections.map.LinkedMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.impl.MessageIdImpl;
 import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
 import org.apache.pulsar.shade.com.google.common.collect.Maps;
 
@@ -348,7 +349,7 @@ public class FlinkPulsarSource<T>
 
         ownedTopicStarts = new HashMap<>();
         Set<String> allTopics = metadataReader.discoverTopicChanges();
-
+        log.info("all topics = {}",allTopics);
         if (restoredState != null) {
             allTopics.stream()
                     .filter(k -> !restoredState.containsKey(k))
@@ -743,7 +744,9 @@ public class FlinkPulsarSource<T>
             case EXTERNAL_SUBSCRIPTION:
                 Map<String, MessageId> offsetsFromSubs = new HashMap<>();
                 for (String topic : topics) {
-                    offsetsFromSubs.put(topic, metadataReader.getPositionFromSubscription(topic, MessageId.latest));
+                    MessageIdImpl msgId = (MessageIdImpl) metadataReader.getPositionFromSubscription(topic, MessageId.latest);
+                    offsetsFromSubs.put(topic, msgId);
+                    log.info("topic={}, offsetsFromSubs={}:{}:{}",topic,msgId.getLedgerId(),msgId.getEntryId(),msgId.getPartitionIndex());
                 }
                 return offsetsFromSubs;
         }

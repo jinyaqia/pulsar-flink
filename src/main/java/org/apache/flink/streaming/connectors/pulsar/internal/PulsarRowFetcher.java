@@ -24,7 +24,9 @@ import org.apache.flink.types.Row;
 import org.apache.flink.util.SerializedValue;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pulsar.client.admin.Schemas;
 import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
 import org.apache.pulsar.common.schema.SchemaInfo;
 
@@ -55,20 +57,21 @@ public class PulsarRowFetcher extends PulsarFetcher<Row> {
         super(sourceContext, seedTopicsWithInitialOffsets, watermarksPeriodic, watermarksPunctuated, processingTimeProvider, autoWatermarkInterval, userCodeClassLoader, runtimeContext, clientConf, readerConf, pollTimeoutMs, deserializer, metadataReader);
     }
 
-    private SchemaInfo getPulsarSchema() {
-        try {
-            return metadataReader.getPulsarSchema(
-                    seedTopicsWithInitialOffsets.keySet().stream().collect(Collectors.toList()));
-        } catch (SchemaUtils.IncompatibleSchemaException e) {
-            log.error("Incompatible schema encountered while read multi topics {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-    }
+//    private SchemaInfo getPulsarSchema() {
+//        try {
+//            return metadataReader.getPulsarSchema(
+//                    seedTopicsWithInitialOffsets.keySet().stream().collect(Collectors.toList()));
+//        } catch (SchemaUtils.IncompatibleSchemaException e) {
+//            log.error("Incompatible schema encountered while read multi topics {}", e.getMessage());
+//            throw new RuntimeException(e);
+//        }
+
+//    }
 
     @Override
     protected ReaderThread createReaderThread(ExceptionProxy exceptionProxy, PulsarTopicState state) {
-        SchemaInfo schemaInfo = getPulsarSchema();
+        SchemaInfo schemaInfo = Schema.BYTES.getSchemaInfo();
         return new RowReaderThread(
-                this, state, clientConf, readerConf, pollTimeoutMs, schemaInfo, null, exceptionProxy);
+                this, state, clientConf, readerConf, pollTimeoutMs, schemaInfo, deserializer, exceptionProxy);
     }
 }

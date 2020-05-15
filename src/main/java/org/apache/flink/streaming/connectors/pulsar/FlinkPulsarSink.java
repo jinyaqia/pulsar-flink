@@ -14,6 +14,7 @@
 
 package org.apache.flink.streaming.connectors.pulsar;
 
+import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
@@ -28,17 +29,14 @@ import java.util.Properties;
  */
 public class FlinkPulsarSink<T> extends FlinkPulsarSinkBase<T> {
 
-    private final Class<T> recordClazz;
-
     public FlinkPulsarSink(
             String adminUrl,
             Optional<String> defaultTopicName,
             ClientConfigurationData clientConf,
             Properties properties,
             TopicKeyExtractor<T> topicKeyExtractor,
-            Class<T> recordClazz) {
-        super(adminUrl, defaultTopicName, clientConf, properties, topicKeyExtractor);
-        this.recordClazz = recordClazz;
+            SerializationSchema<T> serializationSchema) {
+        super(adminUrl, defaultTopicName, clientConf, properties, topicKeyExtractor,serializationSchema);
     }
 
     public FlinkPulsarSink(
@@ -47,46 +45,48 @@ public class FlinkPulsarSink<T> extends FlinkPulsarSinkBase<T> {
             Optional<String> defaultTopicName,
             Properties properties,
             TopicKeyExtractor<T> topicKeyExtractor,
-            Class<T> recordClazz) {
-        this(adminUrl, defaultTopicName, newClientConf(serviceUrl), properties, topicKeyExtractor, recordClazz);
+            SerializationSchema<T> serializationSchema) {
+        this(adminUrl, defaultTopicName, newClientConf(serviceUrl), properties, topicKeyExtractor, serializationSchema);
     }
 
     @Override
-    protected Schema<T> getPulsarSchema() {
-        return Schema.AVRO(recordClazz);
+    protected Schema<?> getPulsarSchema() {
+        return Schema.BYTES;
     }
 
-    @Override
-    public void invoke(T value, Context context) throws Exception {
-        checkErroneous();
-        initializeSendCallback();
-
-        TypedMessageBuilder<T> mb;
-
-        if (forcedTopic) {
-            mb = (TypedMessageBuilder<T>) getProducer(defaultTopic).newMessage().value(value);
-        } else {
-            byte[] key = topicKeyExtractor.serializeKey(value);
-            String topic = topicKeyExtractor.getTopic(value);
-
-            if (topic == null) {
-                if (failOnWrite) {
-                    throw new NullPointerException("no topic present in the data.");
-                }
-                return;
-            }
-
-            mb = (TypedMessageBuilder<T>) getProducer(topic).newMessage().value(value);
-            if (key != null) {
-                mb.keyBytes(key);
-            }
-        }
-
-        if (flushOnCheckpoint) {
-            synchronized (pendingRecordsLock) {
-                pendingRecords++;
-            }
-        }
-        mb.sendAsync().whenComplete(sendCallback);
-    }
+//    @Override
+//    public void invoke(T value, Context context) throws Exception {
+//        checkErroneous();
+//        initializeSendCallback();
+//
+//        TypedMessageBuilder<T> mb;
+//
+//        byte[] serializedValue = schema.serialize(value);
+//
+//        if (forcedTopic) {
+//            mb = (TypedMessageBuilder<T>) getProducer(defaultTopic).newMessage().value(serializedValue);
+//        } else {
+//            byte[] key = topicKeyExtractor.serializeKey(value);
+//            String topic = topicKeyExtractor.getTopic(value);
+//
+//            if (topic == null) {
+//                if (failOnWrite) {
+//                    throw new NullPointerException("no topic present in the data.");
+//                }
+//                return;
+//            }
+//
+//            mb = (TypedMessageBuilder<T>) getProducer(topic).newMessage().value(serializedValue);
+//            if (key != null) {
+//                mb.keyBytes(key);
+//            }
+//        }
+//
+//        if (flushOnCheckpoint) {
+//            synchronized (pendingRecordsLock) {
+//                pendingRecords++;
+//            }
+//        }
+//        mb.sendAsync().whenComplete(sendCallback);
+//    }
 }

@@ -179,7 +179,7 @@ public class SchemaUtils {
             mainSchema.add(DataTypes.FIELD("value", dataType));
         }
 
-        mainSchema.addAll(METADATA_FIELDS);
+//        mainSchema.addAll(METADATA_FIELDS);
         return (FieldsDataType) DataTypes.ROW(mainSchema.toArray(new DataTypes.Field[0]));
     }
 

@@ -45,6 +45,9 @@ public class PulsarValidator extends ConnectorDescriptorValidator {
     public static final String CONNECTOR_SPECIFIC_OFFSETS_OFFSET = "offset";
     public static final String CONNECTOR_EXTERNAL_SUB_NAME = "connector.sub-name";
 
+    public static final String CONNECTOR_TOKEN = CONNECTOR + "." + "token";
+    public static final String CONNECTOR_AUTH_CLASS = CONNECTOR + "." + "auth_class";
+
     public static final String CONNECTOR_PROPERTIES = "connector.properties";
     public static final String CONNECTOR_PROPERTIES_KEY = "key";
     public static final String CONNECTOR_PROPERTIES_VALUE = "value";
@@ -85,6 +88,7 @@ public class PulsarValidator extends ConnectorDescriptorValidator {
         startupModeValidation.put(
                 CONNECTOR_STARTUP_MODE_VALUE_SPECIFIC_OFFSETS,
                 key -> properties.validateFixedIndexedProperties(CONNECTOR_SPECIFIC_OFFSETS, false, specificOffsetValidators));
+        startupModeValidation.put(CONNECTOR_STARTUP_MODE_VALUE_EXETERNAL_SUB, noValidation());
         properties.validateEnum(CONNECTOR_STARTUP_MODE, true, startupModeValidation);
     }
 

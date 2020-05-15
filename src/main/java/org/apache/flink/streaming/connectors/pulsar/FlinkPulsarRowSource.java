@@ -14,6 +14,7 @@
 
 package org.apache.flink.streaming.connectors.pulsar;
 
+import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.streaming.api.functions.AssignerWithPeriodicWatermarks;
 import org.apache.flink.streaming.api.functions.AssignerWithPunctuatedWatermarks;
@@ -44,28 +45,19 @@ public class FlinkPulsarRowSource extends FlinkPulsarSource<Row> {
 
     private TypeInformation<Row> typeInformation;
 
-    public FlinkPulsarRowSource(String adminUrl, ClientConfigurationData clientConf, Properties properties) {
-        super(adminUrl, clientConf, null, properties);
+    public FlinkPulsarRowSource(String adminUrl, ClientConfigurationData clientConf, Properties properties,
+                                DeserializationSchema<Row> deserializationSchema) {
+        super(adminUrl, clientConf, deserializationSchema, properties);
     }
 
-    public FlinkPulsarRowSource(String serviceUrl, String adminUrl, Properties properties) {
-        super(serviceUrl, adminUrl, null, properties);
+    public FlinkPulsarRowSource(String serviceUrl, String adminUrl, Properties properties,
+                                DeserializationSchema<Row> deserializationSchema) {
+        super(serviceUrl, adminUrl, deserializationSchema, properties);
     }
 
     @Override
     public TypeInformation<Row> getProducedType() {
-        if (typeInformation == null) {
-            try (PulsarMetadataReader reader = new PulsarMetadataReader(adminUrl, clientConfigurationData, "", caseInsensitiveParams, -1, -1)) {
-                List<String> topics = reader.getTopics();
-                FieldsDataType schema = reader.getSchema(topics);
-                typeInformation = (TypeInformation<Row>) LegacyTypeInfoDataTypeConverter.toLegacyTypeInfo(schema);
-            } catch (Exception e) {
-                log.error("Failed to get schema for source with exception {}", ExceptionUtils.stringifyException(e));
-                typeInformation = null;
-            }
-        }
-
-        return typeInformation;
+        return deserializer.getProducedType();
     }
 
     @Override
@@ -91,7 +83,7 @@ public class FlinkPulsarRowSource extends FlinkPulsarSource<Row> {
                 clientConfigurationData,
                 readerConf,
                 pollTimeoutMs,
-                null,
+                deserializer,
 				metadataReader);
     }
 }

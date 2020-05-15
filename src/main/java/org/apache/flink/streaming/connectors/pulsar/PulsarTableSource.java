@@ -14,6 +14,7 @@
 
 package org.apache.flink.streaming.connectors.pulsar;
 
+import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -60,7 +61,6 @@ public class PulsarTableSource
         DefinedProctimeAttribute,
         DefinedRowtimeAttributes {
 
-    private final String serviceUrl;
     private final String adminUrl;
 
     /** The startup mode for the contained consumer (default is {@link StartupMode#LATEST}). */
@@ -68,30 +68,35 @@ public class PulsarTableSource
 
     private final Map<String, MessageId> specificStartupOffsets;
 
+    private final ClientConfigurationData clientConfig;
+
     private final String externalSubscriptionName;
 
     private final Map<String, String> caseInsensitiveParams;
 
-    private final Optional<TableSchema> providedSchema;
     private final Optional<String> proctimeAttribute;
     private final List<RowtimeAttributeDescriptor> rowtimeAttributeDescriptors;
     private final Properties properties;
 
     private final TableSchema schema;
 
+    private final DeserializationSchema<Row> deserializationSchema;
+
     public PulsarTableSource(
-            Optional<TableSchema> providedSchema,
+            TableSchema schema,
             Optional<String> proctimeAttribute,
             List<RowtimeAttributeDescriptor> rowtimeAttributeDescriptors,
-            String serviceUrl,
+            ClientConfigurationData clientConfig,
             String adminUrl,
             Properties properties,
             StartupMode startupMode,
             Map<String, MessageId> specificStartupOffsets,
-            String externalSubscriptionName) {
+            String externalSubscriptionName,
+            DeserializationSchema<Row> deserializationSchema) {
 
-        this.providedSchema = providedSchema;
-        this.serviceUrl = checkNotNull(serviceUrl);
+        this.schema = schema;
+        this.clientConfig = checkNotNull(clientConfig);
+        checkNotNull(clientConfig.getServiceUrl());
         this.adminUrl = checkNotNull(adminUrl);
         this.properties = checkNotNull(properties);
         this.startupMode = startupMode;
@@ -101,27 +106,12 @@ public class PulsarTableSource
         this.caseInsensitiveParams =
                 SourceSinkUtils.validateStreamSourceOptions(Maps.fromProperties(properties));
 
-        this.schema = inferTableSchema();
-
         this.proctimeAttribute = validateProctimeAttribute(proctimeAttribute);
         this.rowtimeAttributeDescriptors = validateRowtimeAttributeDescriptors(rowtimeAttributeDescriptors);
+        this.deserializationSchema = Preconditions.checkNotNull(
+                deserializationSchema,"Deserialization schema must not be null.");
     }
 
-    public PulsarTableSource(
-            String serviceUrl,
-            String adminUrl,
-            Properties properties) {
-        this(
-                Optional.empty(),
-                Optional.empty(),
-                Collections.emptyList(),
-                serviceUrl,
-                adminUrl,
-                properties,
-                StartupMode.LATEST,
-                Collections.emptyMap(),
-                null);
-    }
 
     @Override
     public String getProctimeAttribute() {
@@ -145,7 +135,7 @@ public class PulsarTableSource
 
     @Override
     public DataStream<Row> getDataStream(StreamExecutionEnvironment execEnv) {
-        FlinkPulsarRowSource source = new FlinkPulsarRowSource(serviceUrl, adminUrl, properties);
+        FlinkPulsarRowSource source = new FlinkPulsarRowSource(adminUrl, clientConfig, properties,deserializationSchema);
         switch (startupMode) {
             case EARLIEST:
                 source.setStartFromEarliest();
@@ -163,21 +153,6 @@ public class PulsarTableSource
         return execEnv.addSource(source).name(explainSource());
     }
 
-    private TableSchema inferTableSchema() {
-        if (providedSchema.isPresent()) {
-            return providedSchema.get();
-        } else {
-            try {
-                PulsarMetadataReader reader = new PulsarMetadataReader(adminUrl, new ClientConfigurationData(), "", caseInsensitiveParams, -1, -1);
-                List<String> topics = reader.getTopics();
-                FieldsDataType schema = reader.getSchema(topics);
-                return SchemaUtils.toTableSchema(schema);
-            } catch (PulsarClientException | PulsarAdminException | SchemaUtils.IncompatibleSchemaException e) {
-                log.error("Failed to fetch table schema", adminUrl);
-                throw new RuntimeException(e);
-            }
-        }
-    }
 
     //////// VALIDATION FOR PARAMETERS
 
